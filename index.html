@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HECA-OS | Hyper-Enterprise Control Architecture</title>
+    
+    <link rel="manifest" href="./manifest.json">
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;700&display=swap" rel="stylesheet">
+    
+    <style>
+        /*
+            ======================================
+            1. GLOBALS & COLOR PALETTE
+            ======================================
+        */
+        :root {
+            --color-dark-base: #050505;
+            --color-background-offset: #0e0e13;
+            --color-neon-cyan: #00eaff;
+            --color-neon-pink: #ff007f;
+            --color-neon-yellow: #ffff00;
+            --color-emerald-green: #10b981;
+            --blur-strength: 15px;
+            --border-alpha: 0.1;
+            --transition-speed: 0.4s;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: var(--color-dark-base);
+            color: var(--color-neon-cyan);
+            font-family: 'Poppins', sans-serif;
+            margin: 0;
+            padding: 0;
+            overflow-x: hidden;
+            min-height: 200vh;
+        }
+
+        html {
+            scroll-snap-type: y mandatory;
+            scroll-behavior: smooth;
+        }
+
+        /*
+            ======================================
+            2. GLASSMORPHISM & HUD STYLES
+            ======================================
+        */
+        .hud-panel {
+            background: rgba(10, 25, 45, 0.2); 
+            backdrop-filter: blur(var(--blur-strength));
+            -webkit-backdrop-filter: blur(var(--blur-strength));
+            border: 1px solid rgba(0, 234, 255, var(--border-alpha));
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.2);
+            transition: all var(--transition-speed) ease;
+            position: relative;
+            overflow: hidden; 
+            cursor: pointer; /* Default cursor for tap info */
+        }
+
+        .hud-panel:hover {
+            box-shadow: 0 0 15px rgba(0, 234, 255, 0.5), 0 0 30px rgba(0, 234, 255, 0.2);
+            transform: translateY(-2px);
+        }
+        
+        /* Mobile Touch Feedback */
+        .hud-panel:active {
+            transform: scale(0.98);
+            box-shadow: 0 0 10px var(--color-neon-pink);
+        }
+
+        .neon-text {
+            color: var(--color-neon-cyan);
+            text-shadow: 0 0 5px var(--color-neon-cyan), 0 0 10px rgba(0, 234, 255, 0.5);
+            font-weight: 700;
+            letter-spacing: 1px;
+        }
+
+        /*
+            ======================================
+            3. LAYOUT & NAVIGATION
+            ======================================
+        */
+
+        #navbar {
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 40px;
+            margin: 20px;
+        }
+
+        .logo {
+            font-size: 1.8rem;
+            margin: 0;
+        }
+
+        nav a {
+            color: var(--color-neon-pink);
+            text-decoration: none;
+            margin-left: 25px;
+            padding: 5px 0;
+            position: relative;
+            transition: color 0.3s;
+        }
+
+        nav a:hover {
+            color: var(--color-neon-cyan);
+            text-shadow: 0 0 5px var(--color-neon-cyan);
+        }
+
+        .module {
+            min-height: 100vh;
+            padding: 60px 40px;
+            scroll-snap-align: start;
+        }
+
+        .module-title {
+            font-size: 2.5rem;
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .module-layout {
+            display: grid;
+            gap: 30px;
+            grid-template-columns: 2fr 1fr;
+        }
+
+        #earth-guard .module-layout, #agri-nexus .module-layout {
+            grid-template-columns: 3fr 1fr;
+        }
+
+        /*
+            ======================================
+            4. MAP & CHART STYLES
+            ======================================
+        */
+
+        .map-container {
+            height: 70vh;
+            min-height: 400px;
+            background: transparent !important; 
+            padding: 0;
+            overflow: hidden;
+        }
+
+        .leaflet-container {
+            background-color: var(--color-background-offset) !important;
+            color: var(--color-neon-cyan);
+        }
+        
+        .pulsing-marker {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background-color: var(--color-neon-pink);
+            box-shadow: 0 0 10px var(--color-neon-pink), 0 0 20px var(--color-neon-pink);
+            animation: pulse 1.5s infinite ease-out;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.8); opacity: 0.8; }
+            50% { transform: scale(1.1); opacity: 1; }
+            100% { transform: scale(0.8); opacity: 0.8; }
+        }
+
+        /*
+            ======================================
+            5. DATA BOXES, BUTTONS & NEO-KATHMANDU
+            ======================================
+        */
+
+        .side-dashboard {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .data-box {
+            text-align: center;
+            padding: 15px;
+        }
+
+        .data-box .label {
+            display: block;
+            color: var(--color-neon-pink);
+            font-size: 0.9rem;
+            margin-bottom: 5px;
+        }
+
+        .data-box .value {
+            font-size: 2.5rem;
+        }
+        
+        .neon-button {
+            background: none;
+            border: 2px solid var(--color-neon-cyan);
+            color: var(--color-neon-cyan);
+            padding: 12px 25px;
+            border-radius: 8px;
+            text-transform: uppercase;
+            cursor: pointer;
+            font-weight: 700;
+            box-shadow: 0 0 10px var(--color-neon-cyan);
+            transition: all 0.3s ease;
+            min-height: 48px; /* Mobile touch optimization */
+        }
+
+        .neon-button:hover {
+            background-color: var(--color-neon-cyan);
+            color: var(--color-dark-base);
+            box-shadow: 0 0 25px var(--color-neon-cyan);
+        }
+        
+        .traffic-bar-item {
+            margin-bottom: 15px;
+        }
+        .traffic-bar-wrap {
+            padding: 5px;
+            background: rgba(255, 255, 255, 0.05);
+            border: none;
+        }
+        .traffic-bar {
+            height: 15px;
+            border-radius: 3px;
+            transition: width 1s ease;
+            box-shadow: 0 0 5px currentColor;
+        }
+        
+        .drone-feed-img {
+            width: 100%;
+            border-radius: 10px;
+            margin-top: 10px;
+            border: 1px solid rgba(0, 234, 255, 0.3);
+        }
+        
+        /*
+            ======================================
+            6. AGRI-NEXUS STYLES
+            ======================================
+        */
+        
+        .toggle-ndvi {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            z-index: 600;
+            background-color: rgba(5, 5, 5, 0.7);
+            border-color: var(--color-emerald-green);
+            color: var(--color-emerald-green);
+            box-shadow: 0 0 10px var(--color-emerald-green);
+        }
+
+        .ndvi-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0;
+            background: linear-gradient(
+                to bottom right, 
+                rgba(255, 0, 0, 0.4), 
+                rgba(255, 255, 0, 0.4), 
+                rgba(16, 185, 129, 0.6) 
+            );
+            transition: opacity 0.5s ease;
+            z-index: 500;
+            pointer-events: none;
+            border-radius: 15px;
+        }
+
+        .ndvi-overlay.active {
+            opacity: 1;
+        }
+        
+        .market-ticker-wrap {
+            overflow: hidden;
+            padding: 10px;
+            margin-bottom: 20px;
+        }
+        .market-ticker {
+            display: flex;
+            white-space: nowrap;
+            animation: ticker-scroll 15s linear infinite;
+        }
+        @keyframes ticker-scroll {
+            0% { transform: translateX(0%); }
+            100% { transform: translateX(-50%); }
+        }
+        .ticker-item {
+            margin-right: 30px;
+        }
+
+        .forecast-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+        }
+        .forecast-card {
+            text-align: center;
+            padding: 15px 10px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+        .forecast-card:hover {
+            box-shadow: 0 0 20px rgba(16, 185, 129, 0.7);
+            transform: translateY(-5px) scale(1.02);
+        }
+
+        /*
+            ======================================
+            7. HOLOGRAPHIC POPUP
+            ======================================
+        */
+
+        .holographic-popup {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(5, 5, 5, 0.85); 
+            z-index: 2000;
+            display: none; 
+            place-items: center;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .popup-content {
+            width: 400px;
+            min-height: 200px;
+            background: rgba(5, 50, 80, 0.1); 
+            backdrop-filter: blur(20px);
+            border: 2px solid var(--color-neon-cyan);
+            box-shadow: 0 0 30px var(--color-neon-cyan), 0 0 50px rgba(0, 234, 255, 0.5);
+            border-radius: 20px;
+            padding: 30px;
+            position: relative;
+            animation: scaleIn 0.5s cubic-bezier(0.68, -0.55, 0.27, 1.55); 
+        }
+
+        @keyframes scaleIn {
+            0% { transform: scale(0.5); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        .close-btn {
+            position: absolute;
+            top: 10px;
+            right: 20px;
+            color: var(--color-neon-pink);
+            font-size: 2rem;
+            cursor: pointer;
+            transition: text-shadow 0.3s;
+        }
+
+        /*
+            ======================================
+            8. SCROLL ANIMATIONS
+            ======================================
+        */
+        .module.hidden {
+            opacity: 0;
+            transform: translateY(50px);
+        }
+
+        .module.visible {
+            opacity: 1;
+            transform: translateY(0);
+            transition: opacity 1.5s ease-out, transform 1.5s ease-out; 
+        }
+
+        /*
+            ======================================
+            9. MOBILE RESPONSIVENESS
+            ======================================
+        */
+        @media (max-width: 768px) {
+            
+            :root {
+                --blur-strength: 10px; /* Reduced blur for performance */
+            }
+
+            #navbar {
+                flex-direction: column;
+                padding: 15px 20px;
+                margin: 0;
+                background: rgba(10, 25, 45, 0.5);
+                border-radius: 0;
+                border-left: none;
+                border-right: none;
+            }
+            
+            nav {
+                display: flex;
+                justify-content: space-around;
+                width: 100%;
+                margin-top: 10px;
+            }
+            nav a {
+                margin: 0 5px;
+                font-size: 0.8rem;
+                min-height: 40px;
+            }
+
+            .module {
+                padding: 30px 20px;
+                min-height: auto; /* Allow content height */
+            }
+            
+            .module-layout {
+                grid-template-columns: 1fr; /* Single column layout */
+            }
+            
+            .map-container {
+                height: 50vh;
+            }
+            
+            .module-title {
+                font-size: 1.8rem;
+                margin-bottom: 20px;
+            }
+            
+            .data-box .value {
+                font-size: 2rem;
+            }
+            
+            .forecast-grid {
+                grid-template-columns: repeat(3, 1fr); 
+                gap: 10px;
+            }
+
+            .popup-content {
+                width: 90%; 
+                max-height: 80vh;
+                overflow-y: auto; 
+                padding: 20px;
+                border-width: 1px;
+            }
+        }
+    </style>
+</head>
+<body>
+    
+    <header id="navbar" class="hud-panel">
+        <h1 class="logo neon-text">HECA-OS</h1>
+        <nav>
+            <a href="#earth-guard" class="nav-link">EARTH GUARD</a>
+            <a href="#neo-kathmandu" class="nav-link">NEO-KATHMANDU</a>
+            <a href="#agri-nexus" class="nav-link">AGRI-NEXUS</a>
+        </nav>
+    </header>
+
+    <main>
+        
+        <section id="earth-guard" class="module">
+            <h2 class="module-title neon-text">🚨 EARTH GUARD – Global Disaster Response</h2>
+            <div class="module-layout">
+                
+                <div id="earth-map" class="hud-panel map-container"></div>
+                
+                <div class="side-dashboard">
+                    <div class="data-box hud-panel" data-info="temperature">
+                        <span class="label">TEMP (°C)</span>
+                        <div class="value neon-text" id="temp-value">--</div>
+                    </div>
+                    <div class="data-box hud-panel" data-info="wind">
+                        <span class="label">WIND (km/h)</span>
+                        <div class="value neon-text" id="wind-value">--</div>
+                    </div>
+                    <div class="data-box hud-panel" data-info="seismic">
+                        <span class="label">SEISMIC (Richter)</span>
+                        <div class="value neon-text" id="seismic-value">--</div>
+                    </div>
+                    <button id="broadcast-btn" class="neon-button">EMERGENCY BROADCAST</button>
+                    <div id="broadcast-feedback" class="feedback-panel"></div>
+                </div>
+            </div>
+        </section>
+        
+        <section id="neo-kathmandu" class="module">
+            <h2 class="module-title neon-text">🏙️ NEO-KATHMANDU – Smart City OS</h2>
+            <div class="module-layout">
+                <div class="hud-panel chart-container">
+                    <canvas id="energy-chart"></canvas>
+                    <span class="chart-label">Energy Grid: Solar vs Hydro</span>
+                </div>
+                <div class="hud-panel drone-feed-panel">
+                    <span class="label">Drone Surveillance Feed</span>
+                    <img src="assets/img/cctv_placeholder.gif" alt="CCTV Feed 1" class="drone-feed-img"> 
+                </div>
+                <div class="hud-panel traffic-panel">
+                    <span class="label">Traffic Density: Core Sectors</span>
+                    <div id="traffic-bars"></div>
+                </div>
+                <div class="hud-panel ai-panel">
+                    <span class="label">Citizen AI Assistant (Placeholder)</span>
+                    <p>Ready for Gemini/OpenAI Integration.</p>
+                </div>
+            </div>
+        </section>
+
+        <section id="agri-nexus" class="module">
+            <h2 class="module-title neon-text">🌾 AGRI-NEXUS – Precision Agriculture Platform</h2>
+            <div class="module-layout">
+                
+                <div id="agri-map" class="hud-panel map-container">
+                    <button id="toggle-ndvi-btn" class="toggle-ndvi neon-button">Toggle NDVI Overlay</button>
+                    <div id="ndvi-layer" class="ndvi-overlay"></div>
+                </div>
+                
+                <div class="agri-data-side">
+                    <div class="market-ticker-wrap hud-panel">
+                        <div class="market-ticker" id="market-ticker-data"></div>
+                    </div>
+                    
+                    <button id="scan-crop-btn" class="neon-button scan-btn">SCAN CROP (AI Diagnosis)</button>
+                    <div id="forecast-cards" class="forecast-grid">
+                        </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <div id="holographic-popup" class="holographic-popup">
+        <div class="popup-content">
+            <span class="close-btn">&times;</span>
+            <h3 id="popup-title" class="neon-text"></h3>
+            <p id="popup-details"></p>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            
+            // Utility to grab CSS variable for Chart.js
+            function var_css(name) {
+                return getComputedStyle(document.documentElement).getPropertyValue(name);
+            }
+
+            // ======================================
+            // 1. GLOBAL UI HANDLERS
+            // ======================================
+
+            const popup = document.getElementById('holographic-popup');
+            const popupTitle = document.getElementById('popup-title');
+            const popupDetails = document.getElementById('popup-details');
+            const closeBtn = document.querySelector('.close-btn');
+
+            closeBtn.addEventListener('click', () => {
+                popup.style.display = 'none';
+            });
+            
+            function showHolographicPopup(title, details) {
+                popupTitle.textContent = title;
+                popupDetails.innerHTML = details;
+                popup.style.display = 'grid'; 
+            }
+
+            // ======================================
+            // 1.5. Mobile/Tap Handler for HUD Panels
+            // ======================================
+            const allHudPanels = document.querySelectorAll('.hud-panel');
+
+            allHudPanels.forEach(panel => {
+                if (panel.id !== 'earth-map' && panel.id !== 'agri-map' && panel.id !== 'navbar') {
+                    panel.addEventListener('click', (e) => {
+                        if (e.target.closest('.neon-button') || e.target.closest('a')) {
+                            return; 
+                        }
+                        
+                        const title = panel.querySelector('.label') ? panel.querySelector('.label').textContent : 'System Data Insight';
+                        let details = 'No additional information available for this panel yet.';
+                        
+                        const dataInfo = panel.getAttribute('data-info');
+                        if (dataInfo === 'temperature') {
+                            details = `Current average temperature reading from 10 sensor points. Data freshness: 3 seconds.`;
+                        } else if (dataInfo === 'wind') {
+                             details = `Wind speed stability: Nominal. Requires daily check for disaster monitoring.`;
+                        } else if (panel.classList.contains('ai-panel')) {
+                            details = `**AI Status:** Online. **Model:** Gemini-Lite (Placeholder). Tap to initiate chat.`;
+                        }
+
+                        showHolographicPopup(
+                            `HUD Data Insight: ${title}`,
+                            details
+                        );
+                    });
+                }
+            });
+
+
+            // ======================================
+            // 2. EARTH GUARD Module (Leaflet Map & Data)
+            // ======================================
+
+            const earthMap = L.map('earth-map', {
+                minZoom: 2,
+                maxZoom: 10,
+                zoomControl: false 
+            }).setView([27.7172, 85.3240], 5); 
+
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>',
+                subdomains: 'abcd',
+                maxZoom: 19
+            }).addTo(earthMap);
+            
+            function adjustMapView() {
+                if (window.innerWidth <= 768) {
+                    earthMap.setView([27.7172, 85.3240], 4);
+                    earthMap.touchZoom.disable();
+                    earthMap.scrollWheelZoom.disable();
+                    earthMap.dragging.disable();
+                }
+            }
+            adjustMapView();
+            window.addEventListener('resize', adjustMapView);
+
+            const disasterMarkers = [
+                { lat: 28.237, lon: 83.995, type: 'Earthquake', severity: 7.2, loc: 'Pokhara Region' },
+                { lat: 20.5937, lon: 78.9629, type: 'Flood', severity: 5.5, loc: 'Central India' },
+                { lat: 34.0522, lon: -118.2437, type: 'Fire', severity: 6.8, loc: 'California Wildfire' }
+            ];
+
+            disasterMarkers.forEach(d => {
+                const neonIcon = L.divIcon({ className: 'pulsing-marker', iconSize: [20, 20] });
+                const marker = L.marker([d.lat, d.lon], { icon: neonIcon }).addTo(earthMap);
+
+                marker.on('click', () => {
+                    showHolographicPopup(
+                        `${d.type} Alert: ${d.loc}`,
+                        `<p><strong>Severity:</strong> ${d.severity} (High)</p>
+                         <p><strong>Alert Message:</strong> IMMEDIATE EVACUATION REQUIRED in low-lying areas. Follow local authority instructions.</p>
+                         <p class="neon-pink">ETA for response team: 2 hours.</p>`
+                    );
+                });
+            });
+
+            function updateEarthData() {
+                document.getElementById('temp-value').textContent = (Math.random() * (45 - 20) + 20).toFixed(1);
+                document.getElementById('wind-value').textContent = (Math.random() * (80 - 10) + 10).toFixed(1);
+                document.getElementById('seismic-value').textContent = (Math.random() * (7.5 - 1.0) + 1.0).toFixed(1);
+            }
+            setInterval(updateEarthData, 3000); 
+            updateEarthData();
+
+            document.getElementById('broadcast-btn').addEventListener('click', () => {
+                const feedback = document.getElementById('broadcast-feedback');
+                feedback.className = 'feedback-panel neon-text';
+                feedback.textContent = 'SMS Alert Broadcast Initiated. Confirmation Sent!';
+                setTimeout(() => feedback.textContent = '', 3000);
+            });
+
+
+            // ======================================
+            // 3. NEO-KATHMANDU Module (Charts & Traffic)
+            // ======================================
+            
+            const ctx = document.getElementById('energy-chart').getContext('2d');
+            const energyChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: ['00:00', '02:00', '04:00', '06:00', '08:00', '10:00', '12:00'],
+                    datasets: [{
+                        label: 'Solar Usage (MW)',
+                        data: [5, 7, 10, 15, 25, 30, 28],
+                        borderColor: var_css('--color-neon-yellow'),
+                        backgroundColor: 'rgba(255, 255, 0, 0.1)',
+                    },
+                    {
+                        label: 'Hydro Usage (MW)',
+                        data: [35, 38, 30, 25, 20, 18, 22],
+                        borderColor: var_css('--color-neon-cyan'),
+                        backgroundColor: 'rgba(0, 234, 255, 0.1)',
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: 'rgba(0, 234, 255, 0.1)' },
+                            ticks: { color: var_css('--color-neon-cyan') }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: var_css('--color-neon-cyan') }
+                        }
+                    },
+                    plugins: {
+                        legend: { labels: { color: var_css('--color-neon-pink') } }
+                    }
+                }
+            });
+
+            const trafficContainer = document.getElementById('traffic-bars');
+            const sectors = ['Thamel', 'Durbar Marg', 'Baneshwor', 'Kalanki'];
+
+            function updateTraffic() {
+                trafficContainer.innerHTML = sectors.map(sector => {
+                    const density = Math.floor(Math.random() * 90) + 10;
+                    const color = density > 70 ? var_css('--color-neon-pink') : density > 40 ? var_css('--color-neon-yellow') : var_css('--color-emerald-green');
+                    
+                    return `
+                        <div class="traffic-bar-item">
+                            <span class="traffic-sector">${sector}</span>
+                            <div class="traffic-bar-wrap hud-panel">
+                                <div class="traffic-bar" style="width: ${density}%; background-color: ${color};"></div>
+                            </div>
+                            <span class="traffic-percent">${density}%</span>
+                        </div>
+                    `;
+                }).join('');
+            }
+            setInterval(updateTraffic, 5000);
+            updateTraffic();
+
+            // ======================================
+            // 4. AGRI-NEXUS Module (Agri Data)
+            // ======================================
+
+            const agriMap = L.map('agri-map', { zoomControl: false }).setView([27.7172, 85.3240], 12); 
+
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                subdomains: 'abcd',
+                maxZoom: 19
+            }).addTo(agriMap);
+
+            const ndviLayer = document.getElementById('ndvi-layer');
+            document.getElementById('toggle-ndvi-btn').addEventListener('click', (e) => {
+                e.stopPropagation(); // Stop click from triggering parent HUD info
+                ndviLayer.classList.toggle('active');
+                
+                const status = ndviLayer.classList.contains('active') ? 'Active (Health Visualization ON)' : 'Disabled (Standard View)';
+                showHolographicPopup('🛰️ NDVI Layer Status', `Crop Health Overlay is now **${status}**. Green = Healthy, Red = Stressed.`);
+            });
+            
+            const marketTicker = document.getElementById('market-ticker-data');
+            const prices = [
+                { item: 'Tomato', price: '₹60/kg', trend: 'UP' },
+                { item: 'Potato', price: '₹35/kg', trend: 'DOWN' },
+                { item: 'Rice (Basmati)', price: '₹120/kg', trend: 'STABLE' },
+                { item: 'Maize', price: '₹40/kg', trend: 'UP' }
+            ];
+
+            function updateTicker() {
+                const tickerHTML = prices.map(p => {
+                    const trendClass = p.trend === 'UP' ? 'neon-cyan' : p.trend === 'DOWN' ? 'neon-pink' : 'neon-yellow';
+                    return `
+                        <span class="ticker-item ${trendClass}">
+                            ${p.item}: <strong class="neon-text">${p.price}</strong> (${p.trend})
+                        </span>
+                    `;
+                }).join('<span class="ticker-separator"> | </span>');
+                marketTicker.innerHTML = tickerHTML + tickerHTML; 
+            }
+            updateTicker();
+
+            document.getElementById('scan-crop-btn').addEventListener('click', (e) => {
+                e.stopPropagation(); 
+                showHolographicPopup(
+                    '🌿 AI Crop Diagnosis: Wheat Sector 4',
+                    `<p><strong>Diagnosis:</strong> Early-stage Stem Rust detected.</p>
+                     <p><strong>Recommendation:</strong> Immediately apply Azoxystrobin fungicide (300g/ha). Increase nitrogen fertilization by 10% next cycle.</p>
+                     <p class="neon-pink">AI Confidence Level: 92%</p>`
+                );
+            });
+
+            const forecastContainer = document.getElementById('forecast-cards');
+            const days = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+
+            days.forEach((day, index) => {
+                const temp = (Math.random() * (35 - 18) + 18).toFixed(0);
+                const condition = index % 3 === 0 ? 'Rainy' : index % 5 === 0 ? 'Cloudy' : 'Sunny';
+                
+                const card = document.createElement('div');
+                card.className = 'forecast-card hud-panel';
+                card.innerHTML = `
+                    <div class="day-label">${day}</div>
+                    <div class="temp-value neon-text">${temp}°C</div>
+                    <div class="condition">${condition}</div>
+                `;
+                
+                card.addEventListener('click', (e) => {
+                     e.stopPropagation(); 
+                     showHolographicPopup(
+                        `${day} Weather Details`,
+                        `<p><strong>Condition:</strong> ${condition}</p>
+                         <p><strong>Max Temp:</strong> ${temp}°C</p>
+                         <p><strong>Humidity:</strong> ${(Math.random() * (80 - 50) + 50).toFixed(0)}%</p>
+                         <p class="neon-cyan">Wind Speed: 15 km/h</p>`
+                    );
+                });
+                
+                forecastContainer.appendChild(card);
+            });
+
+            // ======================================
+            // 5. SCROLL ANIMATIONS (Intersection Observer)
+            // ======================================
+            
+            const scrollObserver = new IntersectionObserver(entries => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        entry.target.classList.add('visible');
+                        entry.target.classList.remove('hidden');
+                        scrollObserver.unobserve(entry.target); 
+                    }
+                });
+            }, {
+                threshold: 0.15,
+            });
+
+            document.querySelectorAll('.module').forEach(section => {
+                section.classList.add('hidden'); 
+                scrollObserver.observe(section);
+            });
+
+        });
+    </script>
+
+    <script>
+        // NOTE: sw.js must be a separate file for PWA to work correctly.
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                    .then(registration => console.log('SW registered: ', registration))
+                    .catch(registrationError => console.log('SW registration failed: ', registrationError));
+            });
+        }
+    </script>
+</body>
+</html>
